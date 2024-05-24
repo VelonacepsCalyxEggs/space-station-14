@@ -18,6 +18,7 @@ public sealed class ItemGridPiece : Control
 
     public readonly EntityUid Entity;
     public ItemStorageLocation Location;
+    public ItemGridPieceMarks? Marked;
 
     public event Action<GUIBoundKeyEventArgs, ItemGridPiece>? OnPiecePressed;
     public event Action<GUIBoundKeyEventArgs, ItemGridPiece>? OnPieceUnpressed;
@@ -41,6 +42,10 @@ public sealed class ItemGridPiece : Control
     private Texture? _bottomLeftTexture;
     private readonly string _bottomRightTexturePath = "Storage/piece_bottomRight";
     private Texture? _bottomRightTexture;
+    private readonly string _markedFirstTexturePath = "Storage/marked_first";
+    private Texture? _markedFirstTexture;
+    private readonly string _markedSecondTexturePath = "Storage/marked_second";
+    private Texture? _markedSecondTexture;
     #endregion
 
     public ItemGridPiece(Entity<ItemComponent> entity, ItemStorageLocation location,  IEntityManager entityManager)
@@ -85,6 +90,8 @@ public sealed class ItemGridPiece : Control
         _topRightTexture = Theme.ResolveTextureOrNull(_topRightTexturePath)?.Texture;
         _bottomLeftTexture = Theme.ResolveTextureOrNull(_bottomLeftTexturePath)?.Texture;
         _bottomRightTexture = Theme.ResolveTextureOrNull(_bottomRightTexturePath)?.Texture;
+        _markedFirstTexture = Theme.ResolveTextureOrNull(_markedFirstTexturePath)?.Texture;
+        _markedSecondTexture = Theme.ResolveTextureOrNull(_markedSecondTexturePath)?.Texture;
     }
 
     protected override void Draw(DrawingHandleScreen handle)
@@ -98,7 +105,7 @@ public sealed class ItemGridPiece : Control
             return;
         }
 
-        if (_storageController.IsDragging && _storageController.CurrentlyDragging == this)
+        if (_storageController.IsDragging && _storageController.DraggingGhost?.Entity == Entity && _storageController.DraggingGhost != this)
             return;
 
         var adjustedShape = _entityManager.System<ItemSystem>().GetAdjustedItemShape((Entity, itemComponent), Location.Rotation, Vector2i.Zero);
@@ -108,6 +115,9 @@ public sealed class ItemGridPiece : Control
         var hovering = !_storageController.IsDragging && UserInterfaceManager.CurrentlyHovered == this;
         //yeah, this coloring is kinda hardcoded. deal with it. B)
         Color? colorModulate = hovering  ? null : Color.FromHex("#a8a8a8");
+
+        var marked = Marked != null;
+        Vector2i? maybeMarkedPos = null;
 
         _texturesPositions.Clear();
         for (var y = boundingGrid.Bottom; y <= boundingGrid.Top; y++)
@@ -129,6 +139,12 @@ public sealed class ItemGridPiece : Control
                 {
                     _texturesPositions.Add((nwTexture, Position + offset / UIScale));
                     handle.DrawTextureRect(nwTexture, new UIBox2(topLeft, topLeft + size), colorModulate);
+
+                    if (marked && nwTexture == _topLeftTexture)
+                    {
+                        maybeMarkedPos = topLeft;
+                        marked = false;
+                    }
                 }
                 if (GetTexture(adjustedShape, new Vector2i(x, y), Direction.SouthEast) is {} seTexture)
                 {
@@ -144,8 +160,8 @@ public sealed class ItemGridPiece : Control
         }
 
         // typically you'd divide by two, but since the textures are half a tile, this is done implicitly
-        var iconPosition = new Vector2((boundingGrid.Width + 1) * size.X ,
-            (boundingGrid.Height + 1) * size.Y);
+        var iconPosition = new Vector2((boundingGrid.Width + 1) * size.X + itemComponent.StoredOffset.X * 2,
+            (boundingGrid.Height + 1) * size.Y + itemComponent.StoredOffset.Y * 2);
         var iconRotation = Location.Rotation + Angle.FromDegrees(itemComponent.StoredRotation);
 
         if (itemComponent.StoredSprite is { } storageSprite)
@@ -163,7 +179,7 @@ public sealed class ItemGridPiece : Control
             handle.SetTransform(pos, iconRotation);
             var box = new UIBox2(root, root + sprite.Size * scale);
             handle.DrawTextureRect(sprite, box);
-            handle.SetTransform(Matrix3.Identity);
+            handle.SetTransform(GlobalPixelPosition, Angle.Zero);
         }
         else
         {
@@ -174,6 +190,21 @@ public sealed class ItemGridPiece : Control
                 Angle.Zero,
                 eyeRotation: iconRotation,
                 overrideDirection: Direction.South);
+        }
+
+        if (maybeMarkedPos is {} markedPos)
+        {
+            var markedTexture = Marked switch
+            {
+                ItemGridPieceMarks.First => _markedFirstTexture,
+                ItemGridPieceMarks.Second => _markedSecondTexture,
+                _ => null,
+            };
+
+            if (markedTexture != null)
+            {
+                handle.DrawTextureRect(markedTexture, new UIBox2(markedPos, markedPos + size));
+            }
         }
     }
 
@@ -256,4 +287,10 @@ public sealed class ItemGridPiece : Control
         var actualSize = new Vector2(boxSize.X + 1, boxSize.Y + 1);
         return actualSize * new Vector2i(8, 8);
     }
+}
+
+public enum ItemGridPieceMarks
+{
+    First,
+    Second,
 }

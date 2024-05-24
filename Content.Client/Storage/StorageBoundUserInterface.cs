@@ -22,7 +22,7 @@ public sealed class StorageBoundUserInterface : BoundUserInterface
         base.Open();
 
         if (_entManager.TryGetComponent<StorageComponent>(Owner, out var comp))
-            _storage.OpenStorageUI(Owner, comp);
+            _storage.OpenStorageWindow((Owner, comp));
     }
 
     protected override void Dispose(bool disposing)
@@ -31,7 +31,7 @@ public sealed class StorageBoundUserInterface : BoundUserInterface
         if (!disposing)
             return;
 
-        _storage.CloseStorageUI(Owner);
+        _storage.CloseStorageWindow(Owner);
     }
 }
 

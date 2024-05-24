@@ -75,10 +75,10 @@ public sealed class StorageUIController : UIController, IOnSystemChanged<Storage
         if (_container == null)
             return;
 
-        _container.UpdateContainer(nullEnt);
-
         if (IsDragging)
             _menuDragHelper.EndDrag();
+
+        _container.UpdateContainer(nullEnt);
 
         if (nullEnt is not null)
         {
@@ -233,9 +233,21 @@ public sealed class StorageUIController : UIController, IOnSystemChanged<Storage
 
         if (args.Function == ContentKeyFunctions.MoveStoredItem)
         {
+            DraggingRotation = control.Location.Rotation;
+
             _menuDragHelper.MouseDown(control);
             _menuDragHelper.Update(0f);
 
+            args.Handle();
+        }
+        else if (args.Function == ContentKeyFunctions.SaveItemLocation)
+        {
+            if (_container?.StorageEntity is not {} storage)
+                return;
+
+            _entity.RaisePredictiveEvent(new StorageSaveItemLocationEvent(
+                _entity.GetNetEntity(control.Entity),
+                _entity.GetNetEntity(storage)));
             args.Handle();
         }
         else if (args.Function == ContentKeyFunctions.ExamineEntity)
@@ -250,7 +262,7 @@ public sealed class StorageUIController : UIController, IOnSystemChanged<Storage
         }
         else if (args.Function == ContentKeyFunctions.ActivateItemInWorld)
         {
-            _entity.EntityNetManager?.SendSystemNetworkMessage(
+            _entity.RaisePredictiveEvent(
                 new InteractInventorySlotEvent(_entity.GetNetEntity(control.Entity), altInteract: false));
             args.Handle();
         }
@@ -263,29 +275,56 @@ public sealed class StorageUIController : UIController, IOnSystemChanged<Storage
 
     private void OnPieceUnpressed(GUIBoundKeyEventArgs args, ItemGridPiece control)
     {
-        if (_container?.StorageEntity is not { } storageEnt)
+        if (args.Function != ContentKeyFunctions.MoveStoredItem)
             return;
 
-        if (args.Function == ContentKeyFunctions.MoveStoredItem)
+        if (_container?.StorageEntity is not { } storageEnt|| !_entity.TryGetComponent<StorageComponent>(storageEnt, out var storageComp))
+            return;
+
+        if (DraggingGhost is { } draggingGhost)
         {
-            if (DraggingGhost is { } draggingGhost)
+            var dragEnt = draggingGhost.Entity;
+            var dragLoc = draggingGhost.Location;
+            var itemSys = _entity.System<SharedItemSystem>();
+
+            var position = _container.GetMouseGridPieceLocation(dragEnt, dragLoc);
+            var itemBounding = itemSys.GetAdjustedItemShape(dragEnt, dragLoc).GetBoundingBox();
+            var gridBounding = storageComp.Grid.GetBoundingBox();
+
+            // The extended bounding box for if this is out of the window is the grid bounding box dimensions combined
+            // with the item shape bounding box dimensions. Plus 1 on the left for the sidebar. This makes it so that.
+            // dropping an item on the floor requires dragging it all the way out of the window.
+            var left = gridBounding.Left - itemBounding.Width - 1;
+            var bottom = gridBounding.Bottom - itemBounding.Height;
+            var top = gridBounding.Top;
+            var right = gridBounding.Right;
+            var lenientBounding = new Box2i(left, bottom, right, top);
+
+            if (lenientBounding.Contains(position))
             {
-                var position = _container.GetMouseGridPieceLocation(draggingGhost.Entity, draggingGhost.Location);
                 _entity.RaisePredictiveEvent(new StorageSetItemLocationEvent(
                     _entity.GetNetEntity(draggingGhost.Entity),
                     _entity.GetNetEntity(storageEnt),
                     new ItemStorageLocation(DraggingRotation, position)));
-                _container?.BuildItemPieces();
             }
-            else //if we just clicked, then take it out of the bag.
+            else
             {
-                _entity.RaisePredictiveEvent(new StorageInteractWithItemEvent(
-                    _entity.GetNetEntity(control.Entity),
+                _entity.RaisePredictiveEvent(new StorageRemoveItemEvent(
+                    _entity.GetNetEntity(draggingGhost.Entity),
                     _entity.GetNetEntity(storageEnt)));
             }
+
             _menuDragHelper.EndDrag();
-            args.Handle();
+            _container?.BuildItemPieces();
         }
+        else //if we just clicked, then take it out of the bag.
+        {
+            _menuDragHelper.EndDrag();
+            _entity.RaisePredictiveEvent(new StorageInteractWithItemEvent(
+                _entity.GetNetEntity(control.Entity),
+                _entity.GetNetEntity(storageEnt)));
+        }
+        args.Handle();
     }
 
     private bool OnMenuBeginDrag()

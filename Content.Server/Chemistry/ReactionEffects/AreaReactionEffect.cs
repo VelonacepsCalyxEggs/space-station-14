@@ -1,12 +1,12 @@
 using Content.Server.Fluids.EntitySystems;
 using Content.Shared.Audio;
-using Content.Shared.Chemistry.EntitySystems;
 using Content.Shared.Chemistry.Reagent;
 using Content.Shared.Coordinates.Helpers;
 using Content.Shared.Database;
 using Content.Shared.FixedPoint;
 using Content.Shared.Maps;
 using JetBrains.Annotations;
+using Robust.Server.GameObjects;
 using Robust.Shared.Audio;
 using Robust.Shared.Audio.Systems;
 using Robust.Shared.Map;
@@ -30,7 +30,7 @@ namespace Content.Server.Chemistry.ReactionEffects
         /// <summary>
         /// How many units of reaction for 1 smoke entity.
         /// </summary>
-        [DataField("overflowThreshold")] public FixedPoint2 OverflowThreshold = FixedPoint2.New(2.5);
+        [DataField] public FixedPoint2 OverflowThreshold = FixedPoint2.New(2.5);
 
         /// <summary>
         /// The entity prototype that will be spawned as the effect.
@@ -56,18 +56,21 @@ namespace Content.Server.Chemistry.ReactionEffects
                 return;
 
             var spreadAmount = (int) Math.Max(0, Math.Ceiling((args.Quantity / OverflowThreshold).Float()));
-            var splitSolution = args.EntityManager.System<SolutionContainerSystem>().SplitSolution(args.SolutionEntity, args.Source, args.Source.Volume);
+            var splitSolution = args.Source.SplitSolution(args.Source.Volume);
             var transform = args.EntityManager.GetComponent<TransformComponent>(args.SolutionEntity);
             var mapManager = IoCManager.Resolve<IMapManager>();
+            var mapSys = args.EntityManager.System<MapSystem>();
+            var sys = args.EntityManager.System<TransformSystem>();
+            var mapCoords = sys.GetMapCoordinates(args.SolutionEntity, xform: transform);
 
-            if (!mapManager.TryFindGridAt(transform.MapPosition, out _, out var grid) ||
-                !grid.TryGetTileRef(transform.Coordinates, out var tileRef) ||
+            if (!mapManager.TryFindGridAt(mapCoords, out var gridUid, out var grid) ||
+                !mapSys.TryGetTileRef(gridUid, grid, transform.Coordinates, out var tileRef) ||
                 tileRef.Tile.IsSpace())
             {
                 return;
             }
 
-            var coords = grid.MapToGrid(transform.MapPosition);
+            var coords = mapSys.MapToGrid(gridUid, mapCoords);
             var ent = args.EntityManager.SpawnEntity(_prototypeId, coords.SnapToGrid());
 
             var smoke = args.EntityManager.System<SmokeSystem>();

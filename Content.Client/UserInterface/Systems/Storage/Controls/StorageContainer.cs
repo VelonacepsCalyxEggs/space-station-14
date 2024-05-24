@@ -156,6 +156,15 @@ public sealed class StorageContainer : BaseWindow
         {
             Close();
         };
+        exitButton.OnKeyBindDown += args =>
+        {
+            // it just makes sense...
+            if (!args.Handled && args.Function == ContentKeyFunctions.ActivateItemInWorld)
+            {
+                Close();
+                args.Handle();
+            }
+        };
         var exitContainer = new BoxContainer
         {
             Children =
@@ -241,10 +250,11 @@ public sealed class StorageContainer : BaseWindow
 
         var boundingGrid = storageComp.Grid.GetBoundingBox();
         var size = _emptyTexture!.Size * 2;
+        var containedEntities = storageComp.Container.ContainedEntities.Reverse().ToArray();
 
         //todo. at some point, we may want to only rebuild the pieces that have actually received new data.
 
-        _pieceGrid.Children.Clear();
+        _pieceGrid.RemoveAllChildren();
         _pieceGrid.Rows = boundingGrid.Height + 1;
         _pieceGrid.Columns = boundingGrid.Width + 1;
         for (var y = boundingGrid.Bottom; y <= boundingGrid.Top; y++)
@@ -258,21 +268,36 @@ public sealed class StorageContainer : BaseWindow
 
                 var currentPosition = new Vector2i(x, y);
 
-                foreach (var item in storageComp.StoredItems)
+                foreach (var (itemEnt, itemPos) in storageComp.StoredItems)
                 {
-                    if (item.Value.Position != currentPosition)
+                    if (itemPos.Position != currentPosition)
                         continue;
-
-                    var itemEnt = _entity.GetEntity(item.Key);
 
                     if (_entity.TryGetComponent<ItemComponent>(itemEnt, out var itemEntComponent))
                     {
-                        var gridPiece = new ItemGridPiece((itemEnt, itemEntComponent), item.Value, _entity)
+                        ItemGridPiece gridPiece;
+
+                        if (_storageController.CurrentlyDragging?.Entity is { } dragging
+                            && dragging == itemEnt)
                         {
-                            MinSize = size,
-                        };
-                        gridPiece.OnPiecePressed += OnPiecePressed;
-                        gridPiece.OnPieceUnpressed += OnPieceUnpressed;
+                            _storageController.CurrentlyDragging.Orphan();
+                            gridPiece = _storageController.CurrentlyDragging;
+                        }
+                        else
+                        {
+                            gridPiece = new ItemGridPiece((itemEnt, itemEntComponent), itemPos, _entity)
+                            {
+                                MinSize = size,
+                                Marked = Array.IndexOf(containedEntities, itemEnt) switch
+                                {
+                                    0 => ItemGridPieceMarks.First,
+                                    1 => ItemGridPieceMarks.Second,
+                                    _ => null,
+                                }
+                            };
+                            gridPiece.OnPiecePressed += OnPiecePressed;
+                            gridPiece.OnPieceUnpressed += OnPieceUnpressed;
+                        }
 
                         control.AddChild(gridPiece);
                     }
@@ -341,6 +366,40 @@ public sealed class StorageContainer : BaseWindow
             (StorageEntity.Value, storageComponent),
             origin,
             currentLocation.Rotation);
+
+        foreach (var locations in storageComponent.SavedLocations)
+        {
+            if (!_entity.TryGetComponent<MetaDataComponent>(currentEnt, out var meta) || meta.EntityName != locations.Key)
+                continue;
+
+            float spot = 0;
+            var marked = new List<Control>();
+
+            foreach (var location in locations.Value)
+            {
+                var shape = itemSystem.GetAdjustedItemShape(currentEnt, location);
+                var bound = shape.GetBoundingBox();
+
+                var spotFree = storageSystem.ItemFitsInGridLocation(currentEnt, StorageEntity.Value, location);
+
+                if (spotFree)
+                    spot++;
+
+                for (var y = bound.Bottom; y <= bound.Top; y++)
+                {
+                    for (var x = bound.Left; x <= bound.Right; x++)
+                    {
+                        if (TryGetBackgroundCell(x, y, out var cell) && shape.Contains(x, y) && !marked.Contains(cell))
+                        {
+                            marked.Add(cell);
+                            cell.ModulateSelfOverride = spotFree
+                                ? Color.FromHsv((0.18f, 1 / spot, 0.5f / spot + 0.5f, 1f))
+                                : Color.FromHex("#2222CC");
+                        }
+                    }
+                }
+            }
+        }
 
         var validColor = usingInHand ? Color.Goldenrod : Color.FromHex("#1E8000");
 
@@ -435,6 +494,7 @@ public sealed class StorageContainer : BaseWindow
                         _entity.GetNetEntity(handEntity),
                         _entity.GetNetEntity(StorageEntity.Value),
                         insertLocation));
+                    _storageController.DraggingRotation = Angle.Zero;
                     args.Handle();
                 }
             }
@@ -448,6 +508,6 @@ public sealed class StorageContainer : BaseWindow
         if (StorageEntity == null)
             return;
 
-        _entity.System<StorageSystem>().CloseStorageUI(StorageEntity.Value);
+        _entity.System<StorageSystem>().CloseStorageWindow(StorageEntity.Value);
     }
 }
