@@ -258,6 +258,13 @@ public sealed partial class ChatSystem : SharedChatSystem
                 SendEntityEmote(source, message, range, nameOverride, hideLog: hideLog, ignoreActionBlocker: ignoreActionBlocker);
                 break;
         }
+
+        var lastMessageSystem = LastMessageBeforeDeath.Instance;
+
+        if (player != null)
+        {
+            lastMessageSystem.AddMessage(Name(source), source, message);
+        }
     }
 
     public void TrySendInGameOOCMessage(
@@ -979,3 +986,4 @@ public enum ChatTransmitRange : byte
     /// Ghosts can't hear or see it at all. Regular players can if in-range.
     NoGhosts
 }
+
