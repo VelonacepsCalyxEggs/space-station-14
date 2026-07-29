@@ -6,7 +6,7 @@
   minPlayers: 0
   maxPlayers: 12
   stations:
-    Spectre:
+    Reach:
       stationProto: StandardNanotrasenStation
       components:
       - type: StationNameSetup
