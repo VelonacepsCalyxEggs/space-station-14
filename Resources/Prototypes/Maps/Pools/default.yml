@@ -1,14 +1,6 @@
 - type: gameMapPool
   id: DefaultMapPool
   maps:
-  - Bagel
-  - Box
-  - Elkridge
-  - Fland
-  - Marathon
-  - Oasis
+  - Reach
+  - Spectre
   - Packed
-  - Plasma
-  - Exo
-  - Snowball
-  - Serpentcrest
